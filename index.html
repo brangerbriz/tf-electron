@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Tensorflow.js Examples</title>
+  </head>
+  <body>
+    <h1>Tensorflow.js Examples</h1>
+    <ul id="example-list"><ul>
+    <script>
+        
+        // utils to get examples/* folders
+        const { lstatSync, readdirSync } = require('fs')
+        const { join } = require('path')
+        const isDirectory = source => lstatSync(source).isDirectory()
+        const getDirectories = source =>
+            readdirSync(source).map(name => join(source, name)).filter(isDirectory)
+            
+        // add a new list item elements that link to the index.html page in 
+        // each folder in the examples/ directory.
+        getDirectories('examples').forEach(dir => {
+            const li = document.createElement('li')
+            const a = document.createElement('a')
+            a.innerText = dir
+            a.href = `file://${__dirname}/${dir}/index.html`
+            console.log(a.href)
+            li.appendChild(a)
+            document.getElementById('example-list').appendChild(li)
+        }) 
+        
+    </script>
+  </body>
+</html>
