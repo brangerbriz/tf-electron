@@ -4,6 +4,7 @@ const SEQLEN = 40
 const SKIP = 3
 const EPOCHS = 10
 const LEARNING_RATE = 0.01
+const BATCH_SIZE = 128
 const LOADMODEL = false
 
 function loadFile(path) {
@@ -31,7 +32,7 @@ function getModel(inputShape) {
 async function getData(path) {
     
     const buf = await loadFile(path)
-    const text = buf.toString().toLowerCase().slice(0, 100000)
+    const text = buf.toString().toLowerCase().slice(0, 250000)
 
     console.log(`corpus length: ${text.length}`)    
     const chars = Array.from(new Set(text))
@@ -66,7 +67,7 @@ async function getData(path) {
     const y = yBuff.toTensor()
     
     return {
-        x, y, charIndicies, chars
+        x, y, charIndicies, chars, numBatches: Math.floor(sentences.length / BATCH_SIZE)
     }
 }
 
@@ -93,7 +94,6 @@ async function generate(seed, numChars, charIndicies, chars, model) {
         const char = chars[y]
         
         seed.shift(); seed.push(char)
-        console.log(seed.join(''))
         output.push(char)
         
         x.dispose()
@@ -116,17 +116,28 @@ async function main() {
     } else {
         console.log('Training model...')
         model = getModel([SEQLEN, data.chars.length])
+        let history = null
         for (let i = 0; i < EPOCHS; i++) {
-            const history = await model.fit(data.x, data.y, { batchSize: 128 }) 
-            console.log(`loss: ${history.history.loss[0]}, accuracy: ${history.history.acc[0]}`)
+            const then = Date.now()
+            for (let batch = 0; batch < data.numBatches; batch++) {
+                const batchX = tf.slice(data.x, batch * BATCH_SIZE, BATCH_SIZE)
+                const batchY = tf.slice(data.y, batch * BATCH_SIZE, BATCH_SIZE)
+                history = await model.fit(batchX, batchY, { batchSize: BATCH_SIZE }) 
+                batchX.dispose()
+                batchY.dispose()
+                await tf.nextFrame()
+            }
+            console.log(`Epoch ${i + 1} loss: ${history.history.loss[0]}, accuracy: ${history.history.acc[0]}`)
+            console.log(`Epoch lasted ${((Date.now() - then) / 1000).toFixed(0)} seconds`)            
             // const text = await generate(seed, 50, data.charIndicies, data.chars, model)
             // console.log(text)
-            console.log(await model.save('indexeddb://model'))
+            await model.save('indexeddb://model')
             const text = await generate(seed, 100, data.charIndicies, data.chars, model)
             console.log(text)
         }
     }
     
+    console.log(`Finished training for ${EPOCHS}`)
     const text = await generate(seed, 100, data.charIndicies, data.chars, model)
     console.log(text)
     
