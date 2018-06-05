@@ -31,6 +31,7 @@ function getModel(inputShape) {
     return model
 }
 
+// utility function for loading and prepairing training data. Returns an object.
 async function getData(path) {
     
     const buf = await loadFile(path)
@@ -53,17 +54,22 @@ async function getData(path) {
         // console.log(text.slice(i, i + SEQLEN), '->', text.slice(i + SEQLEN, i + SEQLEN + 1))
     }
     
+    // each array element will hold a batch of BATCH_SIZE examples
     const X = []
     const Y = []
     for (let batch = 0; batch < sentences.length; batch += BATCH_SIZE) {
 
-        // one-hotify batches
+        // we can't store all of the data in GPU memory, so instead we use
+        // tf.TensorBuffer objects which are allocated by the CPU. Becore we
+        // train on a batch we transform it into a Tensor using TensorBuffer.toTensor()
+        
         const xBuff = tf.buffer([BATCH_SIZE, SEQLEN, chars.length])
         const yBuff = tf.buffer([BATCH_SIZE, chars.length])
         
         const sentenceBatch = sentences.slice(batch, batch + BATCH_SIZE)
         const nextCharsBatch = nextChars.slice(batch, batch + BATCH_SIZE)
         
+        // one-hotify batches
         sentenceBatch.forEach((sentence, j) => {
             sentence.split('').forEach((char, k) => {
                 xBuff.set(1, j, k, charIndicies[char])
@@ -75,12 +81,12 @@ async function getData(path) {
         Y.push(yBuff)
     }
     return {
-        X, Y, charIndicies, chars, numBatches: Math.floor(sentences.length / BATCH_SIZE)
+        X, Y, charIndicies, chars
     }
 }
 
+// sample an output from the multinomial distribution output of model.predict()
 function sample(preds) {
-    // console.log(preds)
     let probas = Sampling.Multinomial(1, preds).draw()
     // lazy argmax that returns the index of the "hot" value in a one-hot vector 
     return probas.reduce((acc, val, i) => acc + (val == 1 ? i : 0))
@@ -97,13 +103,14 @@ async function generate(seed, numChars, charIndicies, chars, model) {
             x.buffer().set(1, 0, j, charIndicies[char])
         })
 
-        const preds = model.predict(x, { verbose: true }).dataSync()
-        const y = sample(preds)
+        const preds = model.predict(x, { verbose: true })
+        const y = sample(preds.dataSync())
         const char = chars[y]
         
         seed.shift(); seed.push(char)
         output.push(char)
         
+        preds.dispose()
         x.dispose()
         await tf.nextFrame()
     }
@@ -118,16 +125,19 @@ async function main() {
 
     const seed = "This is a test sentence. It will be used to seed the model."
     
+    // load model from IndexedDB if the flag says so
     if (LOADMODEL) {
         console.log('Loading model from IndexedDB')
         model = await tf.loadModel('indexeddb://model')
     } else {
+        // otherwise train a new model and save it to IndexedDB overwriting any
+        // existing models that may be saved there
         console.log('Training model...')
         model = getModel([SEQLEN, data.chars.length])
         let history = null
         for (let i = 0; i < EPOCHS; i++) {
             const then = Date.now()
-            for (let batch = 0; batch < data.numBatches; batch++) {
+            for (let batch = 0; batch < data.X.length; batch++) {
                 const batchX = data.X[batch].toTensor()
                 const batchY = data.Y[batch].toTensor()
                 history = await model.fit(batchX, batchY, { batchSize: BATCH_SIZE }) 
@@ -136,9 +146,7 @@ async function main() {
                 await tf.nextFrame()
             }
             console.log(`Epoch ${i + 1} loss: ${history.history.loss[0]}, accuracy: ${history.history.acc[0]}`)
-            console.log(`Epoch lasted ${((Date.now() - then) / 1000).toFixed(0)} seconds`)            
-            // const text = await generate(seed, 50, data.charIndicies, data.chars, model)
-            // console.log(text)
+            console.log(`Epoch lasted ${((Date.now() - then) / 1000).toFixed(0)} seconds`)
             await model.save('indexeddb://model')
             const text = await generate(seed, 100, data.charIndicies, data.chars, model)
             console.log(text)
@@ -146,7 +154,8 @@ async function main() {
     }
     
     console.log(`Finished training for ${EPOCHS}`)
-    const text = await generate(seed, 100, data.charIndicies, data.chars, model)
+    console.log(`Generating 1000 characters of synthetic text:`)
+    const text = await generate(seed, 1000, data.charIndicies, data.chars, model)
     console.log(text)
     
 }
