@@ -1,5 +1,3 @@
-const fs = require('fs')
-
 const SEQLEN = 40
 const SKIP = 3
 const EPOCHS = 10
@@ -7,7 +5,9 @@ const LEARNING_RATE = 0.01
 const BATCH_SIZE = 128
 const LOADMODEL = false
 
+// promisified fs.readFile()
 function loadFile(path) {
+    const fs = require('fs')
     return new Promise((resolve, reject) => {
         fs.readFile(path, (err, data) => {
             if (err) reject(err)
@@ -16,6 +16,8 @@ function loadFile(path) {
     })
 }
 
+// define and return an LSTM RNN model architecture. RNNs are used
+// with sequential data.
 function getModel(inputShape) {
     const model = tf.sequential()
     model.add(tf.layers.lstm({units: 128, inputShape: inputShape }))
@@ -32,9 +34,11 @@ function getModel(inputShape) {
 async function getData(path) {
     
     const buf = await loadFile(path)
-    const text = buf.toString().toLowerCase().slice(0, 250000)
-
+    // convert all of the characters to lowercase to reduce our number of 
+    // output classes
+    const text = buf.toString().toLowerCase()
     console.log(`corpus length: ${text.length}`)    
+    
     const chars = Array.from(new Set(text))
     console.log(`total chars: ${chars.length}`)
     
@@ -49,25 +53,29 @@ async function getData(path) {
         // console.log(text.slice(i, i + SEQLEN), '->', text.slice(i + SEQLEN, i + SEQLEN + 1))
     }
     
-    // one-hotify
-    // const x = tf.zeros([sentences.length, SEQLEN, chars.length], 'float32')
-    // const y = tf.zeros([sentences.length, chars.length], 'float32')
-    const xBuff = tf.buffer([sentences.length, SEQLEN, chars.length])
-    const yBuff = tf.buffer([sentences.length, chars.length])
-    sentences.forEach((sentence, i) => {
-        sentence.split('').forEach((char, t) => {
-            // console.log(char)
-            // console.log(i, t, charIndicies[char], char)
-            xBuff.set(1, i, t, charIndicies[char])
+    const X = []
+    const Y = []
+    for (let batch = 0; batch < sentences.length; batch += BATCH_SIZE) {
+
+        // one-hotify batches
+        const xBuff = tf.buffer([BATCH_SIZE, SEQLEN, chars.length])
+        const yBuff = tf.buffer([BATCH_SIZE, chars.length])
+        
+        const sentenceBatch = sentences.slice(batch, batch + BATCH_SIZE)
+        const nextCharsBatch = nextChars.slice(batch, batch + BATCH_SIZE)
+        
+        sentenceBatch.forEach((sentence, j) => {
+            sentence.split('').forEach((char, k) => {
+                xBuff.set(1, j, k, charIndicies[char])
+            })
+            yBuff.set(1, j, charIndicies[nextCharsBatch[j]])
         })
-        yBuff.set(1, i, charIndicies[nextChars[i]])
-    })
-    
-    const x = xBuff.toTensor()
-    const y = yBuff.toTensor()
-    
+
+        X.push(xBuff)
+        Y.push(yBuff)
+    }
     return {
-        x, y, charIndicies, chars, numBatches: Math.floor(sentences.length / BATCH_SIZE)
+        X, Y, charIndicies, chars, numBatches: Math.floor(sentences.length / BATCH_SIZE)
     }
 }
 
@@ -120,8 +128,8 @@ async function main() {
         for (let i = 0; i < EPOCHS; i++) {
             const then = Date.now()
             for (let batch = 0; batch < data.numBatches; batch++) {
-                const batchX = tf.slice(data.x, batch * BATCH_SIZE, BATCH_SIZE)
-                const batchY = tf.slice(data.y, batch * BATCH_SIZE, BATCH_SIZE)
+                const batchX = data.X[batch].toTensor()
+                const batchY = data.Y[batch].toTensor()
                 history = await model.fit(batchX, batchY, { batchSize: BATCH_SIZE }) 
                 batchX.dispose()
                 batchY.dispose()
@@ -141,8 +149,6 @@ async function main() {
     const text = await generate(seed, 100, data.charIndicies, data.chars, model)
     console.log(text)
     
-    data.x.dispose()
-    data.y.dispose()
 }
 
 main()
