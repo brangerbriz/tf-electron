@@ -1,9 +1,10 @@
 const fs = require('fs')
 
-const MAX_LEN = 40
-const SKIP = 1
-const EPOCHS = 5
-const LEARNING_RATE = 0.15
+const SEQLEN = 40
+const SKIP = 3
+const EPOCHS = 10
+const LEARNING_RATE = 0.01
+const LOADMODEL = false
 
 function loadFile(path) {
     return new Promise((resolve, reject) => {
@@ -16,8 +17,7 @@ function loadFile(path) {
 
 function getModel(inputShape) {
     const model = tf.sequential()
-    model.add(tf.layers.lstm({units: 128, inputShape: inputShape, returnSequences: true, recurrentInitializer: 'glorotNormal', activation: 'relu'}))
-    model.add(tf.layers.lstm({units: 128, returnSequences: false, recurrentInitializer: 'glorotNormal', activation: 'relu'}))
+    model.add(tf.layers.lstm({units: 128, inputShape: inputShape }))
     model.add(tf.layers.dense({units: inputShape[1]}))
     model.add(tf.layers.activation({ activation: 'softmax' }))
     model.compile({
@@ -31,9 +31,9 @@ function getModel(inputShape) {
 async function getData(path) {
     
     const buf = await loadFile(path)
-    const text = buf.toString().toLowerCase().slice(0, 10000)
+    const text = buf.toString().toLowerCase().slice(0, 100000)
 
-    console.log(`corpuslength: ${text.length}`)    
+    console.log(`corpus length: ${text.length}`)    
     const chars = Array.from(new Set(text))
     console.log(`total chars: ${chars.length}`)
     
@@ -42,47 +42,93 @@ async function getData(path) {
     // cut the text in semi-redundant sequences of maxlen characters
     const sentences = []
     const nextChars = []
-    for (let i = 0; i < text.length; i += SKIP) {
-        sentences.push(text.slice(i, i + MAX_LEN))
-        nextChars.push(text.slice(i + MAX_LEN, i + MAX_LEN + 1))
-        // console.log(text.slice(i, i + MAX_LEN), '->', text.slice(i + MAX_LEN, i + MAX_LEN + 1))
+    for (let i = 0; i < text.length - SEQLEN; i += SKIP) {
+        sentences.push(text.slice(i, i + SEQLEN))
+        nextChars.push(text.slice(i + SEQLEN, i + SEQLEN + 1))
+        // console.log(text.slice(i, i + SEQLEN), '->', text.slice(i + SEQLEN, i + SEQLEN + 1))
     }
     
     // one-hotify
-    const x = tf.zeros([sentences.length, MAX_LEN, chars.length])
-    const y = tf.zeros([sentences.length, chars.length])
+    // const x = tf.zeros([sentences.length, SEQLEN, chars.length], 'float32')
+    // const y = tf.zeros([sentences.length, chars.length], 'float32')
+    const xBuff = tf.buffer([sentences.length, SEQLEN, chars.length])
+    const yBuff = tf.buffer([sentences.length, chars.length])
     sentences.forEach((sentence, i) => {
         sentence.split('').forEach((char, t) => {
             // console.log(char)
             // console.log(i, t, charIndicies[char], char)
-            x.buffer().set(1, i, t, charIndicies[char])
+            xBuff.set(1, i, t, charIndicies[char])
         })
-        y.buffer().set(1, i, charIndicies[nextChars[i]])
+        yBuff.set(1, i, charIndicies[nextChars[i]])
     })
     
-    // const tmp = x.dataSync()
-    // for (let i = 0; i < 40; i++) {
-    //     const t = tmp.slice(i * chars.length, i * chars.length + chars.length + 1)
-    //     const tensor = tf.tensor(t).argMax().dataSync()
-    //     const num = tensor[0]
-    //     console.log(chars[num], num)
-    // }
+    const x = xBuff.toTensor()
+    const y = yBuff.toTensor()
     
     return {
-        x, y, charIndicies
+        x, y, charIndicies, chars
     }
-} 
+}
+
+function sample(preds) {
+    // console.log(preds)
+    let probas = Sampling.Multinomial(1, preds).draw()
+    // lazy argmax that returns the index of the "hot" value in a one-hot vector 
+    return probas.reduce((acc, val, i) => acc + (val == 1 ? i : 0))
+}
+
+async function generate(seed, numChars, charIndicies, chars, model) {
+    console.assert(seed.length >= SEQLEN)
+    seed = seed.toLowerCase().split('').slice(0, SEQLEN)
+    const output = []
+    for (let i = 0; i < numChars; i++) {
+        
+        const x = tf.zeros([1, SEQLEN, chars.length])
+        seed.forEach((char, j) => {
+            x.buffer().set(1, 0, j, charIndicies[char])
+        })
+
+        const preds = model.predict(x, { verbose: true }).dataSync()
+        const y = sample(preds)
+        const char = chars[y]
+        
+        seed.shift(); seed.push(char)
+        console.log(seed.join(''))
+        output.push(char)
+        
+        x.dispose()
+        await tf.nextFrame()
+    }
+    
+    return output.join('')
+}
 
 async function main() {
     
     const data = await getData(`${__dirname}/data/tinyshakespeare.txt`)
-    const model = getModel([MAX_LEN, Object.keys(data.charIndicies).length])
-    console.log('fitting model')
+    let model = null
+
+    const seed = "This is a test sentence. It will be used to seed the model."
     
-    for (let i = 0; i < EPOCHS; i++) {
-        const history = await model.fit(data.x, data.y) 
-        console.log(`loss: ${history.history.loss[0]}, accuracy: ${history.history.acc[0]}`)
+    if (LOADMODEL) {
+        console.log('Loading model from IndexedDB')
+        model = await tf.loadModel('indexeddb://model')
+    } else {
+        console.log('Training model...')
+        model = getModel([SEQLEN, data.chars.length])
+        for (let i = 0; i < EPOCHS; i++) {
+            const history = await model.fit(data.x, data.y, { batchSize: 128 }) 
+            console.log(`loss: ${history.history.loss[0]}, accuracy: ${history.history.acc[0]}`)
+            // const text = await generate(seed, 50, data.charIndicies, data.chars, model)
+            // console.log(text)
+            console.log(await model.save('indexeddb://model'))
+            const text = await generate(seed, 100, data.charIndicies, data.chars, model)
+            console.log(text)
+        }
     }
+    
+    const text = await generate(seed, 100, data.charIndicies, data.chars, model)
+    console.log(text)
     
     data.x.dispose()
     data.y.dispose()
