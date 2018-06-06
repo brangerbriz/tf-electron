@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Char RNN Text Example></title>
+    </head>
+    <body>
+        Index page/main UI thread. Not getting blocked.
+        <br>
+        <img src="https://media3.giphy.com/media/sIIhZliB2McAo/giphy.gif">
+        <br><br>
+        Embed. this thing does the thinking without blocking the main UI thread.
+        <br>
+        <!-- 
+        webview is electron's special iframe: https://electronjs.org/docs/api/webview-tag
+        By using a webview to embed the code that runs tfjs operations into this
+        "parent" page, we can remove the calls to "await tf.nextFrame()" without
+        worrying about blocking the main UI thread. This is sort of a hacky form
+        of multithreading. Tensorflow.js also works in Web Workers, but unfortunately
+        it doesn't support the WebGL backend (it's cpu only) 
+        (https://github.com/tensorflow/tfjs/issues/102). Using this method you 
+        can use the WebGL backend and write your tfjs code in a "blocking" fashion
+        without actually worrying about blocking the main UI thread. It effectively
+        means your tfjs operations will run faster.  
+        -->
+        <webview src="embed.html" nodeIntegration></webview>
+        <br>
+        Open your developer console to see what's happening!
+        <p><a href="../../index.html">Back</a></p>
+        
+        <script>
+        
+        const webview = document.querySelector('webview')
+        webview.addEventListener('ipc-message', (event) => {    
+            // you can do inter process communication here if you want. Posting
+            // messages to the embed page or receiving messages from it...
+        })
+        
+        webview.addEventListener('console-message', (e) => {
+            console.log('Embed log:', e.message)
+        })
+        </script>
+    </body>
+</html>
