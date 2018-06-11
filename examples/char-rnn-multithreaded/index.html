@@ -2,18 +2,17 @@
 <html>
     <head>
         <title>Char RNN Text Example></title>
+        <style>
+            body {
+                font-family: monospace;
+            }
+        </style>
     </head>
     <body>
-        Index page/main UI thread. Not getting blocked.
-        <br>
-        <img src="https://media3.giphy.com/media/sIIhZliB2McAo/giphy.gif">
-        <br><br>
-        Embed. this thing does the thinking without blocking the main UI thread.
-        <br>
-        <!-- 
-        webview is electron's special iframe: https://electronjs.org/docs/api/webview-tag
-        By using a webview to embed the code that runs tfjs operations into this
-        "parent" page, we can remove the calls to "await tf.nextFrame()" without
+        
+    <p>
+        This example uses Electron's webview feature to embed the code that runs Tensorflow.js operations into this
+        "parent" page. By doing so we can remove the calls to "await tf.nextFrame()" without
         worrying about blocking the main UI thread. This is sort of a hacky form
         of multithreading. Tensorflow.js also works in Web Workers, but unfortunately
         it doesn't support the WebGL backend (it's cpu only) 
@@ -21,23 +20,36 @@
         can use the WebGL backend and write your tfjs code in a "blocking" fashion
         without actually worrying about blocking the main UI thread. It effectively
         means your tfjs operations will run faster.  
-        -->
-        <webview src="embed.html" nodeIntegration></webview>
-        <br>
+    </p>
+    <p>
+        Here we are borrowing most of the code from the char-rnn example, so check that example out to get a better idea of what's happening here. This example is really just used to demonstrate how webview (and potentially iframes in web browsers) can be used to offload compute intensive Tensorflow.js operations to a seperate thread so as to not block the main UI. On my computer this technique reduces training time for one epoch from ~285 seconds using examples/char-rnn to ~240 seconds using examples/char-rnn-mulithreaded.
+    </p>
+    <p>
         Open your developer console to see what's happening!
-        <p><a href="../../index.html">Back</a></p>
-        
-        <script>
-        
-        const webview = document.querySelector('webview')
-        webview.addEventListener('ipc-message', (event) => {    
-            // you can do inter process communication here if you want. Posting
-            // messages to the embed page or receiving messages from it...
-        })
-        
-        webview.addEventListener('console-message', (e) => {
-            console.log('Embed log:', e.message)
-        })
-        </script>
+    </p>
+    <br>
+    <p>
+        Index page/main UI thread. Not getting blocked.
+        <img src="https://media3.giphy.com/media/sIIhZliB2McAo/giphy.gif">
+    <p>
+    <br>
+    <p>
+    Embed. this thing does the thinking without blocking the main UI thread.
+    <webview src="embed.html" nodeIntegration></webview>
+    </p>
+    <p><a href="../../index.html">Back</a></p>
+    
+    <script>
+    
+    const webview = document.querySelector('webview')
+    webview.addEventListener('ipc-message', (event) => {    
+        // you can do inter process communication here if you want. Posting
+        // messages to the embed page or receiving messages from it...
+    })
+    
+    webview.addEventListener('console-message', (e) => {
+        console.log('Embed log:', e.message)
+    })
+    </script>
     </body>
 </html>

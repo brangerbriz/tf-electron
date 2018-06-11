@@ -2,11 +2,22 @@
 <html>
     <head>
         <title>Char RNN Text Example></title>
+        <style>
+            body {
+                font-family: monospace;
+            }
+        </style>
     </head>
     <body>
         <img src="https://media3.giphy.com/media/sIIhZliB2McAo/giphy.gif">
-        <br>
-        Open your developer console to see what's happening!
+        <p>Tensorflow.js operations shares the main UI thread with the browser, so the GIF of Nyancat above is so that you can see if and when Tensorflow.js freezes user interaction.</p>        
+        <p>
+        Char-rnn is a generative language model that creates text in the style of an author or passage given a substantial amount (1MB+) of training text. It uses a recurrent neural network (RNN) that is fed 40-character windows of sequential text data and learns to predict the next character in the sequence. This model is being trained using data from William Shakespeare's plays. For more information about Char-rnn, see this blog post: https://karpathy.github.io/2015/05/21/rnn-effectiveness/
+        <p>
+        <p>
+        Open your developer console to view training losses and newly generated Shakespear text each epoch.
+        </p>
+        
         <p><a href="../../index.html">Back</a></p>
         <script src="lib/tfjs@0.11.2.js"></script>
         <!-- Random sampling util lib: https://github.com/jacobmenick/sampling -->
